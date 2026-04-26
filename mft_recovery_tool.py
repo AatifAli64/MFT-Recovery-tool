@@ -764,6 +764,8 @@ class MainWindow(QMainWindow):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabel("Recovered Files")
         self.tree.itemClicked.connect(self.on_tree_click)
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.show_tree_context_menu)
         self.splitter.addWidget(self.tree)
         
         # Center Panel
@@ -800,6 +802,50 @@ class MainWindow(QMainWindow):
 
     def toggle_left(self):
         self.tree.setVisible(not self.tree.isVisible())
+
+    def show_tree_context_menu(self, position):
+        item = self.tree.itemAt(position)
+        if not item: return
+        record: MFTRecord = item.data(0, Qt.UserRole)
+        if not record or record.is_directory: return
+        
+        menu = QMenu(self.tree)
+        extract_action = QAction("Extract/Save File...", self)
+        extract_action.triggered.connect(lambda: self.extract_file(record))
+        menu.addAction(extract_action)
+        menu.exec(self.tree.viewport().mapToGlobal(position))
+
+    def extract_file(self, record: MFTRecord):
+        if not self.disk_handler:
+            QMessageBox.critical(self, "Error", "No disk image or drive loaded.")
+            return
+            
+        save_path, _ = QFileDialog.getSaveFileName(self, "Extract File", record.file_name)
+        if not save_path: return
+        
+        try:
+            if record.is_resident:
+                with open(save_path, 'wb') as f:
+                    f.write(record.resident_data)
+            else:
+                bpc = self.vbr_params.get('bytes_per_cluster', 4096) if hasattr(self, 'vbr_params') and self.vbr_params else 4096
+                with open(save_path, 'wb') as f:
+                    for cluster_offset, cluster_length in record.data_runs:
+                        if cluster_offset == 0:
+                            f.write(b'\x00' * (cluster_length * bpc))
+                        else:
+                            abs_offset = cluster_offset * bpc
+                            read_len = cluster_length * bpc
+                            chunk = self.disk_handler.read_bytes(abs_offset, read_len)
+                            f.write(chunk)
+                
+                if record.used_size > 0:
+                    with open(save_path, 'r+b') as f:
+                        f.truncate(record.used_size)
+                        
+            QMessageBox.information(self, "Success", f"File '{record.file_name}' extracted successfully.")
+        except Exception as e:
+            QMessageBox.critical(self, "Extraction Error", f"Failed to extract file: {str(e)}")
 
     def toggle_right(self):
         self.right_panel.setVisible(not self.right_panel.isVisible())
