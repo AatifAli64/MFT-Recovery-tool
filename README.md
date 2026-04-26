@@ -95,3 +95,16 @@ To run this tool, ensure you have the following installed on your machine:
 
 6. **Export Reports:**
    * Go to the `Report` menu to export your findings as a CSV, JSON, or PDF summary for documentation and chain of custody.
+
+---
+
+## Platform Compatibility
+
+* **Operating System:** Designed primarily for **Windows** environments, as it interfaces with Windows physical drives (`\\.\PhysicalDriveX`) and focuses on the NTFS file system.
+* **Forensic Images:** The tool can parse static forensic images (`.dd`, `.E01`) on **Linux or macOS** systems as well, provided the raw hexadecimal data structure remains intact, but live analysis requires a Windows environment.
+
+## Troubleshooting
+
+* **PermissionError (Access is denied):** This happens when you try to open a Live Disk without running the command prompt or IDE as an Administrator. Right-click your terminal and select "Run as Administrator."
+* **Missing Dependencies:** Ensure you have activated your virtual environment (if using one) and successfully run `pip install PySide6`. If PDF exports fail, make sure `reportlab` is installed.
+* **Corrupted or Unreadable MFT:** If the standard "Scan for MFT" fails, the MFT may be severely overwritten. Use the "Scan for FILE Signatures" tool to bypass the MFT dependency and carve directly from the raw disk.
