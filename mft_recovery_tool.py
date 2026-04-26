@@ -101,17 +101,17 @@ class PartitionAnalyzer:
         if mbr_data[510:512] != b'\x55\xAA':
             return partitions
 
-        # Check GPT
-        lba1 = self.disk.read_bytes(512, 512)
-        if lba1.startswith(b'EFI PART'):
-            return self._parse_gpt()
-
         # Parse MBR entries
         for i in range(4):
             offset = 446 + (i * 16)
             entry = mbr_data[offset:offset+16]
             status = entry[0]
             part_type = entry[4]
+            
+            # Check for Protective MBR indicating GPT
+            if part_type == 0xEE:
+                return self._parse_gpt()
+                
             if part_type == 0:
                 continue
             lba_start = struct.unpack('<I', entry[8:12])[0]
@@ -132,9 +132,57 @@ class PartitionAnalyzer:
             
         return partitions
 
-    def _parse_gpt(self):
-        # Basic GPT parsing stub
-        return []
+    def _parse_gpt(self) -> list:
+        partitions = []
+        # Step A: Read GPT Header
+        lba1 = self.disk.read_bytes(512, 512)
+        if len(lba1) < 512:
+            return partitions
+            
+        # Step B: Verify Signature
+        if not lba1.startswith(b'EFI PART'):
+            return partitions
+            
+        # Step C: Extract Array Info
+        part_entry_lba = struct.unpack('<Q', lba1[0x48:0x50])[0]
+        num_entries = struct.unpack('<I', lba1[0x50:0x54])[0]
+        entry_size = struct.unpack('<I', lba1[0x54:0x58])[0]
+        
+        # Read the Partition Entry Array
+        array_offset = part_entry_lba * 512
+        array_data = self.disk.read_bytes(array_offset, num_entries * entry_size)
+        
+        # Microsoft Basic Data Partition GUID (Little Endian format)
+        # EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 -> A2 A0 D0 EB E5 B9 33 44 87 C0 68 B6 B7 26 99 C7
+        ms_basic_data_guid = bytes([0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44, 0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7])
+        
+        for i in range(num_entries):
+            entry_offset = i * entry_size
+            entry = array_data[entry_offset:entry_offset + entry_size]
+            if len(entry) < entry_size:
+                break
+                
+            type_guid = entry[0x00:0x10]
+            if type_guid == ms_basic_data_guid:
+                lba_start = struct.unpack('<Q', entry[0x20:0x28])[0]
+                lba_end = struct.unpack('<Q', entry[0x28:0x30])[0]
+                lba_size = (lba_end - lba_start) + 1
+                
+                p_info = {
+                    'index': i,
+                    'type': 0x07,  # Mimic MBR NTFS type for compatibility
+                    'type_name': 'GPT Microsoft Basic Data',
+                    'lba_start': lba_start,
+                    'lba_size': lba_size,
+                    'size_bytes': lba_size * 512,
+                    'is_ntfs': True
+                }
+                
+                # Verify NTFS signature
+                if self.identify_ntfs(p_info):
+                    partitions.append(p_info)
+                    
+        return partitions
 
     def identify_ntfs(self, partition: dict) -> bool:
         start_offset = partition['lba_start'] * 512
