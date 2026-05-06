@@ -957,13 +957,34 @@ class MainWindow(QMainWindow):
         self.worker.start()
         self.status.showMessage("Scanning...")
 
+    def on_scan_error(self, error_message):
+        print(f"CRITICAL THREAD ERROR: {error_message}")
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.critical(self, "Scanner Crashed", f"The background scanner hit an error:\n\n{error_message}")
+        self.status.showMessage("Scan failed due to error.")
+
     def scan_signatures(self):
-        if not hasattr(self, 'selected_partition'): return
-        p = self.selected_partition
-        self.worker = ScanWorker(self.engine, p['lba_start']*512, p['size_bytes'])
+        if not self.disk_handler: 
+            return
+            
+        # Check if we have a healthy partition map
+        if hasattr(self, 'selected_partition') and self.selected_partition:
+            p = self.selected_partition
+            start_offset = p['lba_start'] * 512
+            scan_size = p['size_bytes']
+        else:
+            start_offset = 0
+            scan_size = 2 * 1024 * 1024 * 1024 * 1024 
+            
+        self.worker = ScanWorker(self.engine, start_offset, scan_size)
         self.worker.finished.connect(self.on_scan_finished)
+        self.worker.error.connect(self.on_scan_error)
         self.worker.start()
-        self.status.showMessage("Carving signatures...")
+        
+        if start_offset == 0:
+            self.status.showMessage("Carving signatures from raw physical disk (Bypassing Partitions)...")
+        else:
+            self.status.showMessage("Carving signatures from selected partition...")
 
     def on_scan_finished(self, records):
         self.records = records
